@@ -3,6 +3,7 @@ import type { AUTO_MODE, DARK_MODE, LIGHT_MODE } from "@constants/constants";
 export type SiteConfig = {
 	title: string;
 	subtitle: string;
+	ogImage?: string;
 
 	lang:
 		| "en"
@@ -86,11 +87,17 @@ export type BlogPostData = {
 	body: string;
 	title: string;
 	published: Date;
+	updated?: Date;
 	description: string;
 	tags: string[];
 	draft?: boolean;
 	image?: string;
 	category?: string;
+	lang?: string;
+	featured?: boolean;
+	seoTitle?: string;
+	seoDescription?: string;
+	ogImage?: string;
 	prevTitle?: string;
 	prevSlug?: string;
 	nextTitle?: string;

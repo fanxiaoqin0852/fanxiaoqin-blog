@@ -6,10 +6,16 @@ import { getCategoryUrl } from "@utils/url-utils.ts";
 // // Retrieve posts and sort them by publication date
 async function getRawSortedPosts() {
 	const allBlogPosts = await getCollection("posts", ({ data }) => {
-		return import.meta.env.PROD ? data.draft !== true : true;
+		return data.draft !== true;
 	});
 
 	const sorted = allBlogPosts.sort((a, b) => {
+		const aFeatured = a.data.featured === true;
+		const bFeatured = b.data.featured === true;
+		if (aFeatured !== bFeatured) {
+			return aFeatured ? -1 : 1;
+		}
+
 		const dateA = new Date(a.data.published);
 		const dateB = new Date(b.data.published);
 		return dateA > dateB ? -1 : 1;
@@ -53,7 +59,7 @@ export type Tag = {
 
 export async function getTagList(): Promise<Tag[]> {
 	const allBlogPosts = await getCollection<"posts">("posts", ({ data }) => {
-		return import.meta.env.PROD ? data.draft !== true : true;
+		return data.draft !== true;
 	});
 
 	const countMap: { [key: string]: number } = {};
@@ -80,7 +86,7 @@ export type Category = {
 
 export async function getCategoryList(): Promise<Category[]> {
 	const allBlogPosts = await getCollection<"posts">("posts", ({ data }) => {
-		return import.meta.env.PROD ? data.draft !== true : true;
+		return data.draft !== true;
 	});
 	const count: { [key: string]: number } = {};
 	allBlogPosts.forEach((post: { data: { category: string | null } }) => {
