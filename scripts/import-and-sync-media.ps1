@@ -61,30 +61,6 @@ function Get-CommitsMissingFromOrigin {
     return @($commits | Where-Object { $_ -and $_.Trim() })
 }
 
-function Get-CommitsMissingFromDeploy {
-    $lines = Get-GitOutput cherry zaohello-origin/main main
-    $commits = @()
-
-    foreach ($line in $lines) {
-        if (-not $line) {
-            continue
-        }
-
-        $trimmed = $line.Trim()
-        if (-not $trimmed.StartsWith("+ ")) {
-            continue
-        }
-
-        $parts = $trimmed.Split(" ", [System.StringSplitOptions]::RemoveEmptyEntries)
-        if ($parts.Count -ge 2) {
-            $commits += $parts[1]
-        }
-    }
-
-    [array]::Reverse($commits)
-    return $commits
-}
-
 $SourceDir = Normalize-Input $SourceDir
 $TargetFolderName = Normalize-Input $TargetFolderName
 
@@ -133,32 +109,33 @@ try {
         Invoke-Git commit -m "feat: import media $TargetFolderName ($timestamp)"
     }
 
-    Invoke-Git fetch zaohello-origin
-
     $originCommits = Get-CommitsMissingFromOrigin
-    $deployCommits = Get-CommitsMissingFromDeploy
-
-    if ($pendingFiles.Count -eq 0 -and $originCommits.Count -eq 0 -and $deployCommits.Count -eq 0) {
-        Write-Step "Nothing new to sync"
-        Write-Host "All files from this folder are already online." -ForegroundColor Green
-        exit 0
-    }
 
     if ($originCommits.Count -gt 0) {
         Write-Step "Push to origin/main"
         Invoke-Git push origin main
     }
 
-    if ($deployCommits.Count -gt 0) {
-        Write-Step "Sync to deploy repo"
-        Invoke-Git switch -C deploy-sync zaohello-origin/main
+    Write-Step "Sync to deploy repo"
+    Invoke-Git fetch zaohello-origin
+    Invoke-Git switch -C deploy-sync zaohello-origin/main
+    Invoke-Git checkout main -- $relativeTarget
 
-        foreach ($commit in $deployCommits) {
-            Invoke-Git cherry-pick $commit
-        }
+    $deployPendingFiles = Get-GitOutput status --short -- $relativeTarget
+    if ($deployPendingFiles.Count -gt 0) {
+        Invoke-Git add -- $relativeTarget
 
+        $deployTimestamp = Get-Date -Format "yyyy-MM-dd HH:mm"
+        Invoke-Git commit -m "feat: sync media $TargetFolderName ($deployTimestamp)"
         Invoke-Git push zaohello-origin deploy-sync:main
-        Invoke-Git switch main
+    }
+
+    Invoke-Git switch main
+
+    if ($pendingFiles.Count -eq 0 -and $originCommits.Count -eq 0 -and $deployPendingFiles.Count -eq 0) {
+        Write-Step "Nothing new to sync"
+        Write-Host "All files from this folder are already online." -ForegroundColor Green
+        exit 0
     }
 
     Write-Step "Done"
