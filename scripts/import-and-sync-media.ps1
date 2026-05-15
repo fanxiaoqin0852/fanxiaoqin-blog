@@ -56,6 +56,35 @@ function Normalize-Input([string]$value) {
     return $value.Trim().Trim('"')
 }
 
+function Get-CommitsMissingFromOrigin {
+    $commits = Get-GitOutput rev-list --reverse origin/main..main
+    return @($commits | Where-Object { $_ -and $_.Trim() })
+}
+
+function Get-CommitsMissingFromDeploy {
+    $lines = Get-GitOutput cherry zaohello-origin/main main
+    $commits = @()
+
+    foreach ($line in $lines) {
+        if (-not $line) {
+            continue
+        }
+
+        $trimmed = $line.Trim()
+        if (-not $trimmed.StartsWith("+ ")) {
+            continue
+        }
+
+        $parts = $trimmed.Split(" ", [System.StringSplitOptions]::RemoveEmptyEntries)
+        if ($parts.Count -ge 2) {
+            $commits += $parts[1]
+        }
+    }
+
+    [array]::Reverse($commits)
+    return $commits
+}
+
 $SourceDir = Normalize-Input $SourceDir
 $TargetFolderName = Normalize-Input $TargetFolderName
 
@@ -95,26 +124,42 @@ try {
     $targetFolderPath = Join-Path $repoRoot $relativeTarget
 
     $pendingFiles = Get-GitOutput status --short -- $relativeTarget
-    if ($pendingFiles.Count -eq 0) {
+
+    if ($pendingFiles.Count -gt 0) {
+        Write-Step "Commit to origin/main"
+        Invoke-Git add -- $relativeTarget
+
+        $timestamp = Get-Date -Format "yyyy-MM-dd HH:mm"
+        Invoke-Git commit -m "feat: import media $TargetFolderName ($timestamp)"
+    }
+
+    Invoke-Git fetch zaohello-origin
+
+    $originCommits = Get-CommitsMissingFromOrigin
+    $deployCommits = Get-CommitsMissingFromDeploy
+
+    if ($pendingFiles.Count -eq 0 -and $originCommits.Count -eq 0 -and $deployCommits.Count -eq 0) {
         Write-Step "Nothing new to sync"
         Write-Host "All files from this folder are already online." -ForegroundColor Green
         exit 0
     }
 
-    Write-Step "Commit to origin/main"
-    Invoke-Git add -- $relativeTarget
+    if ($originCommits.Count -gt 0) {
+        Write-Step "Push to origin/main"
+        Invoke-Git push origin main
+    }
 
-    $timestamp = Get-Date -Format "yyyy-MM-dd HH:mm"
-    Invoke-Git commit -m "feat: import media $TargetFolderName ($timestamp)"
-    $mainCommit = (Get-GitOutput rev-parse --short HEAD | Select-Object -First 1).Trim()
-    Invoke-Git push origin main
+    if ($deployCommits.Count -gt 0) {
+        Write-Step "Sync to deploy repo"
+        Invoke-Git switch -C deploy-sync zaohello-origin/main
 
-    Write-Step "Sync to deploy repo"
-    Invoke-Git fetch zaohello-origin
-    Invoke-Git switch -C deploy-sync zaohello-origin/main
-    Invoke-Git cherry-pick $mainCommit
-    Invoke-Git push zaohello-origin deploy-sync:main
-    Invoke-Git switch main
+        foreach ($commit in $deployCommits) {
+            Invoke-Git cherry-pick $commit
+        }
+
+        Invoke-Git push zaohello-origin deploy-sync:main
+        Invoke-Git switch main
+    }
 
     Write-Step "Done"
     Write-Host "Media imported and synced successfully." -ForegroundColor Green
